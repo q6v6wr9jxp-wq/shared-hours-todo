@@ -3,10 +3,10 @@ const TODO_API_TOKEN = "";
 
 const PEOPLE = [
   {
-    name: "Simpletom",
-    city: "London",
-    place: "United Kingdom",
-    timeZone: "Europe/London"
+    name: "sushi_dizasta",
+    city: "Tokyo",
+    place: "Japan",
+    timeZone: "Asia/Tokyo"
   },
   {
     name: "Craz",
@@ -15,10 +15,10 @@ const PEOPLE = [
     timeZone: "America/New_York"
   },
   {
-    name: "sushi_dizasta",
-    city: "Tokyo",
-    place: "Japan",
-    timeZone: "Asia/Tokyo"
+    name: "Simpletom",
+    city: "London",
+    place: "United Kingdom",
+    timeZone: "Europe/London"
   }
 ];
 
