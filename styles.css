@@ -39,22 +39,89 @@ input {
 }
 
 .app-shell {
-  width: min(1500px, calc(100% - 32px));
+  width: min(820px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 20px 0 42px;
+  padding: 72px 0 42px;
+}
+
+.hero-card {
+  position: relative;
+  min-height: 352px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #000;
+  box-shadow: var(--shadow);
+  isolation: isolate;
+}
+
+.hero-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 58%;
+}
+
+.hero-focus {
+  position: absolute;
+  inset: 42% 0 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 100%);
+}
+
+.hero-card::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 2;
+  height: 44%;
+  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.72));
+}
+
+.hero-brand {
+  position: absolute;
+  left: 28px;
+  bottom: 22px;
+  z-index: 3;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.hero-brand img {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.42));
+}
+
+.hero-brand h1 {
+  margin: 0;
+  color: #fff;
+  font-size: 43px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .people-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  gap: 12px;
+  margin-top: 10px;
 }
 
 .person-card {
   display: grid;
   align-content: space-between;
-  min-height: 190px;
-  padding: 22px;
+  min-height: 174px;
+  padding: 18px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #000;
@@ -77,15 +144,15 @@ input {
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--ink);
-  font-size: 27px;
+  font-size: 23px;
   line-height: 1.05;
   letter-spacing: 0;
 }
 
 .person-card p {
-  margin: 8px 0 0;
+  margin: 7px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 650;
   line-height: 1.35;
 }
@@ -94,7 +161,7 @@ input {
 .clock-period {
   flex: 0 0 auto;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 720;
   line-height: 1.1;
   text-align: right;
@@ -114,17 +181,17 @@ input {
 
 .person-time {
   display: block;
-  margin-top: 36px;
+  margin-top: 30px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
-  font-size: clamp(56px, 5.6vw, 82px);
+  font-size: clamp(42px, 5.1vw, 62px);
   font-weight: 740;
   line-height: 0.92;
   letter-spacing: 0;
 }
 
 .todo-panel {
-  margin-top: 18px;
+  margin-top: 14px;
   padding: clamp(18px, 2.4vw, 32px);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -280,7 +347,27 @@ input {
 @media (max-width: 560px) {
   .app-shell {
     width: min(100% - 18px, 440px);
-    padding-top: 10px;
+    padding-top: 34px;
+  }
+
+  .hero-card {
+    min-height: 248px;
+  }
+
+  .hero-brand {
+    left: 18px;
+    bottom: 18px;
+    gap: 10px;
+  }
+
+  .hero-brand img {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+
+  .hero-brand h1 {
+    font-size: 32px;
   }
 
   .person-card {
