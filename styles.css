@@ -204,13 +204,6 @@ input {
   letter-spacing: 0;
 }
 
-.todo-head p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 720;
-}
-
 .todo-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 54px;

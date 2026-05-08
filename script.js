@@ -31,8 +31,7 @@ const els = {
   peopleGrid: document.querySelector("#peopleGrid"),
   todoForm: document.querySelector("#todoForm"),
   todoInput: document.querySelector("#todoInput"),
-  todoList: document.querySelector("#todoList"),
-  todoStatus: document.querySelector("#todoStatus")
+  todoList: document.querySelector("#todoList")
 };
 
 let todos = [];
@@ -95,10 +94,6 @@ function renderClocks() {
 
 function hasRemoteApi() {
   return TODO_API_URL.startsWith("https://script.google.com/");
-}
-
-function setStableStatus() {
-  els.todoStatus.textContent = hasRemoteApi() ? "Google Sheets" : "Local";
 }
 
 function normalizeTodo(todo) {
@@ -552,7 +547,6 @@ els.todoList.addEventListener("click", (event) => {
 
 renderClocks();
 loadLocalState();
-setStableStatus();
 renderTodos();
 refreshTodos();
 scheduleSync(1200);
