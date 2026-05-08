@@ -4,17 +4,20 @@ const TODO_API_TOKEN = "";
 const PEOPLE = [
   {
     name: "Simpletom",
-    place: "イギリス / London",
+    city: "London",
+    place: "United Kingdom",
     timeZone: "Europe/London"
   },
   {
     name: "Craz",
-    place: "アメリカ / New York",
+    city: "New York",
+    place: "United States",
     timeZone: "America/New_York"
   },
   {
     name: "sushi_dizasta",
-    place: "日本 / Tokyo",
+    city: "Tokyo",
+    place: "Japan",
     timeZone: "Asia/Tokyo"
   }
 ];
@@ -53,21 +56,38 @@ function escapeHtml(value) {
 function renderClocks() {
   const now = new Date();
   els.peopleGrid.innerHTML = PEOPLE.map((person) => {
-    const time = new Intl.DateTimeFormat("ja-JP", {
+    const time = new Intl.DateTimeFormat("en-US", {
       timeZone: person.timeZone,
       hourCycle: "h23",
       hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
+      minute: "2-digit"
     }).format(now);
+    const date = new Intl.DateTimeFormat("en-US", {
+      timeZone: person.timeZone,
+      weekday: "short",
+      month: "short",
+      day: "numeric"
+    }).format(now);
+    const localHour = Number(new Intl.DateTimeFormat("en-US", {
+      timeZone: person.timeZone,
+      hourCycle: "h23",
+      hour: "2-digit"
+    }).format(now));
+    const isDay = localHour >= 6 && localHour < 18;
 
     return `
       <article class="person-card">
-        <div>
-          <h2>${escapeHtml(person.name)}</h2>
-          <p>${escapeHtml(person.place)}</p>
+        <div class="clock-top">
+          <div>
+            <h2>${escapeHtml(person.city)}</h2>
+            <p>${escapeHtml(person.name)} / ${escapeHtml(person.place)}</p>
+          </div>
+          <span class="clock-date">${escapeHtml(date)}</span>
         </div>
-        <strong class="person-time">${time}</strong>
+        <div class="clock-bottom">
+          <strong class="person-time">${time}</strong>
+          <span class="clock-period">${isDay ? "Day" : "Night"}</span>
+        </div>
       </article>
     `;
   }).join("");
