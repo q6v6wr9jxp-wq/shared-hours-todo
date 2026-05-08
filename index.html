@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shared Hours</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23060608'/%3E%3Cpath d='M9 16h14M16 9v14' stroke='%23f7f7f8' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="people-grid" id="peopleGrid" aria-label="メンバーの現地時刻"></section>
+
+      <section class="todo-panel" aria-label="Todo list">
+        <div class="todo-head">
+          <h1>Todo</h1>
+          <p id="todoStatus">Google Sheets</p>
+        </div>
+
+        <form class="todo-form" id="todoForm">
+          <input id="todoInput" name="todo" type="text" autocomplete="off" placeholder="Add todo" />
+          <button type="submit" aria-label="Add todo">+</button>
+        </form>
+
+        <ul class="todo-list" id="todoList"></ul>
+      </section>
+    </main>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
