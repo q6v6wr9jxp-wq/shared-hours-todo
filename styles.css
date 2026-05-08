@@ -46,7 +46,8 @@ input {
 
 .hero-card {
   position: relative;
-  min-height: 352px;
+  aspect-ratio: 7704 / 4356;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -62,17 +63,6 @@ input {
   height: 100%;
   object-fit: cover;
   object-position: center 58%;
-}
-
-.hero-focus {
-  position: absolute;
-  inset: 42% 0 0;
-  z-index: 1;
-  background: rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 22%, #000 100%);
 }
 
 .hero-card::after {
@@ -348,10 +338,6 @@ input {
   .app-shell {
     width: min(100% - 18px, 440px);
     padding-top: 34px;
-  }
-
-  .hero-card {
-    min-height: 248px;
   }
 
   .hero-brand {
