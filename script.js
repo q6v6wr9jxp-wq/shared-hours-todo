@@ -19,7 +19,10 @@ const PEOPLE = [
   }
 ];
 
-const LOCAL_TODOS_KEY = "shared-hours-local-todos-v2";
+const LOCAL_STATE_KEY = "shared-hours-todo-state-v4";
+const LEGACY_LOCAL_TODOS_KEY = "shared-hours-local-todos-v2";
+const SYNC_DEBOUNCE_MS = 350;
+const RETRY_DELAY_MS = 2200;
 
 const els = {
   peopleGrid: document.querySelector("#peopleGrid"),
@@ -30,7 +33,9 @@ const els = {
 };
 
 let todos = [];
-let pendingCount = 0;
+let tombstones = {};
+let syncTimer = null;
+let syncInProgress = false;
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => {
@@ -68,50 +73,37 @@ function renderClocks() {
   }).join("");
 }
 
-function setStatus(text) {
-  els.todoStatus.textContent = text;
-}
-
-function beginPending() {
-  pendingCount += 1;
-  setStatus("Saving");
-}
-
-function endPending(success = true) {
-  pendingCount = Math.max(0, pendingCount - 1);
-  if (success && pendingCount === 0 && hasRemoteApi()) {
-    setStatus("Google Sheets");
-  }
-}
-
 function hasRemoteApi() {
   return TODO_API_URL.startsWith("https://script.google.com/");
 }
 
-function loadLocalTodos() {
-  todos = JSON.parse(localStorage.getItem(LOCAL_TODOS_KEY) || "[]").map(normalizeTodo);
-  sortTodos();
-}
-
-function saveLocalTodos() {
-  localStorage.setItem(LOCAL_TODOS_KEY, JSON.stringify(todos));
+function setStableStatus() {
+  els.todoStatus.textContent = hasRemoteApi() ? "Google Sheets" : "Local";
 }
 
 function normalizeTodo(todo) {
   const createdAt = todo.createdAt || new Date().toISOString();
 
   return {
-    id: String(todo.id),
+    id: String(todo.id || createLocalId()),
     text: String(todo.text || ""),
     done: todo.done === true || todo.done === "true" || todo.done === "TRUE",
     createdAt,
     updatedAt: todo.updatedAt || createdAt,
-    pending: Boolean(todo.pending)
+    dirty: Boolean(todo.dirty)
   };
 }
 
 function isRealTodo(todo) {
   return todo.id && todo.text && !(todo.id === "id" && todo.text === "text");
+}
+
+function isLocalId(id) {
+  return String(id).startsWith("local-");
+}
+
+function createLocalId() {
+  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function sortTodos() {
@@ -122,17 +114,91 @@ function sortTodos() {
   });
 }
 
-function createLocalId() {
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function dedupeTodos(nextTodos) {
+  const byId = new Map();
+
+  nextTodos.forEach((todo) => {
+    if (!isRealTodo(todo)) {
+      return;
+    }
+
+    const previous = byId.get(todo.id);
+    if (!previous || (Date.parse(todo.updatedAt) || 0) >= (Date.parse(previous.updatedAt) || 0)) {
+      byId.set(todo.id, todo);
+    }
+  });
+
+  return Array.from(byId.values());
+}
+
+function saveLocalState() {
+  localStorage.setItem(LOCAL_STATE_KEY, JSON.stringify({ todos, tombstones }));
+}
+
+function loadLocalState() {
+  const saved = JSON.parse(localStorage.getItem(LOCAL_STATE_KEY) || "null");
+
+  if (saved && Array.isArray(saved.todos)) {
+    todos = saved.todos.map(normalizeTodo).filter(isRealTodo);
+    tombstones = saved.tombstones || {};
+  } else {
+    todos = JSON.parse(localStorage.getItem(LEGACY_LOCAL_TODOS_KEY) || "[]")
+      .map(normalizeTodo)
+      .filter(isRealTodo);
+    tombstones = {};
+  }
+
+  sortTodos();
 }
 
 function findTodoIndex(id) {
   return todos.findIndex((todo) => todo.id === id);
 }
 
-function replaceTodos(nextTodos) {
-  todos = nextTodos.map(normalizeTodo).filter(isRealTodo);
+function updateTodoId(oldId, newTodo) {
+  const index = findTodoIndex(oldId);
+  if (index === -1) {
+    return;
+  }
+
+  todos[index] = {
+    ...todos[index],
+    id: newTodo.id,
+    createdAt: newTodo.createdAt || todos[index].createdAt,
+    dirty: todos[index].dirty || todos[index].done !== newTodo.done
+  };
+
+  if (tombstones[oldId]) {
+    tombstones[newTodo.id] = tombstones[oldId];
+    delete tombstones[oldId];
+  }
+}
+
+function mergeRemoteTodos(remoteTodos) {
+  const localById = new Map(todos.map((todo) => [todo.id, todo]));
+  const remoteIds = new Set();
+  const merged = [];
+
+  remoteTodos.map(normalizeTodo).filter(isRealTodo).forEach((remoteTodo) => {
+    remoteIds.add(remoteTodo.id);
+
+    if (tombstones[remoteTodo.id]) {
+      return;
+    }
+
+    const localTodo = localById.get(remoteTodo.id);
+    merged.push(localTodo?.dirty ? localTodo : remoteTodo);
+  });
+
+  todos.forEach((localTodo) => {
+    if (localTodo.dirty && !remoteIds.has(localTodo.id) && !tombstones[localTodo.id]) {
+      merged.push(localTodo);
+    }
+  });
+
+  todos = dedupeTodos(merged);
   sortTodos();
+  saveLocalState();
   renderTodos();
 }
 
@@ -148,7 +214,9 @@ function jsonp(action, params = {}) {
     }
 
     Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.set(key, value);
+      if (value !== undefined && value !== null) {
+        url.searchParams.set(key, value);
+      }
     });
 
     const script = document.createElement("script");
@@ -182,154 +250,228 @@ function jsonp(action, params = {}) {
   });
 }
 
-async function refreshTodos({ silent = false } = {}) {
+async function refreshTodos() {
   if (!hasRemoteApi()) {
-    loadLocalTodos();
-    setStatus("Local");
-    renderTodos();
     return;
-  }
-
-  if (!silent && pendingCount === 0) {
-    setStatus("Syncing");
   }
 
   try {
     const payload = await jsonp("list");
-    const pendingTodos = todos.filter((todo) => todo.pending);
-    const pendingById = new Map(pendingTodos.map((todo) => [todo.id, todo]));
-    const remoteTodos = (payload.todos || []).map(normalizeTodo);
-    const mergedTodos = remoteTodos.map((todo) => pendingById.get(todo.id) || todo);
-
-    pendingTodos.forEach((todo) => {
-      if (!remoteTodos.some((remoteTodo) => remoteTodo.id === todo.id)) {
-        mergedTodos.push(todo);
-      }
-    });
-
-    replaceTodos(mergedTodos);
-    if (pendingCount === 0) {
-      setStatus("Google Sheets");
-    }
+    mergeRemoteTodos(payload.todos || []);
   } catch {
-    if (pendingCount === 0) {
-      setStatus("Offline");
+    scheduleSync(RETRY_DELAY_MS);
+  }
+}
+
+function hasPendingSync() {
+  return todos.some((todo) => todo.dirty) || Object.keys(tombstones).length > 0;
+}
+
+function scheduleSync(delay = SYNC_DEBOUNCE_MS) {
+  if (!hasRemoteApi()) {
+    saveLocalState();
+    return;
+  }
+
+  window.clearTimeout(syncTimer);
+  syncTimer = window.setTimeout(flushSync, delay);
+}
+
+async function flushSync() {
+  if (!hasRemoteApi() || syncInProgress) {
+    return;
+  }
+
+  syncInProgress = true;
+
+  try {
+    const dirtyTodos = todos.filter((todo) => todo.dirty);
+    for (const todo of dirtyTodos) {
+      await syncTodo(todo);
+    }
+
+    const deletes = Object.entries(tombstones);
+    for (const [id, deletedAt] of deletes) {
+      await syncDelete(id, deletedAt);
+    }
+  } finally {
+    syncInProgress = false;
+
+    if (hasPendingSync()) {
+      scheduleSync(RETRY_DELAY_MS);
+    } else {
+      refreshTodos();
     }
   }
 }
 
-async function addTodo(text) {
+function addTodo(text) {
   const now = new Date().toISOString();
-  const optimisticTodo = {
+  const todo = {
     id: createLocalId(),
     text,
     done: false,
     createdAt: now,
     updatedAt: now,
-    pending: hasRemoteApi()
+    dirty: true
   };
 
-  todos.unshift(optimisticTodo);
+  todos.unshift(todo);
   sortTodos();
+  saveLocalState();
   renderTodos();
-
-  if (!hasRemoteApi()) {
-    saveLocalTodos();
-    return;
-  }
-
-  beginPending();
-  let saved = false;
-  try {
-    const payload = await jsonp("add", { text });
-    replaceTodos(payload.todos || []);
-    saved = true;
-  } catch {
-    todos = todos.filter((todo) => todo.id !== optimisticTodo.id);
-    renderTodos();
-    setStatus("Error");
-  } finally {
-    endPending(saved);
-  }
+  scheduleSync();
 }
 
-async function toggleTodo(id, done) {
-  const index = findTodoIndex(id);
-  if (index === -1 || todos[index].pending) {
-    return;
-  }
-
-  const previous = todos[index].done;
-  todos[index] = {
-    ...todos[index],
-    done,
-    updatedAt: new Date().toISOString(),
-    pending: hasRemoteApi()
-  };
-  renderTodos();
-
-  if (!hasRemoteApi()) {
-    saveLocalTodos();
-    return;
-  }
-
-  beginPending();
-  let saved = false;
-  try {
-    const payload = await jsonp("toggle", { id, done: String(done) });
-    replaceTodos(payload.todos || []);
-    saved = true;
-  } catch {
-    const nextIndex = findTodoIndex(id);
-    if (nextIndex !== -1) {
-      todos[nextIndex] = {
-        ...todos[nextIndex],
-        done: previous,
-        pending: false
-      };
-      renderTodos();
-    }
-    setStatus("Error");
-  } finally {
-    endPending(saved);
-  }
-}
-
-async function deleteTodo(id) {
+function toggleTodo(id, done) {
   const index = findTodoIndex(id);
   if (index === -1) {
     return;
   }
 
-  const removedTodo = todos[index];
-  todos = todos.filter((todo) => todo.id !== id);
+  todos[index] = {
+    ...todos[index],
+    done,
+    updatedAt: new Date().toISOString(),
+    dirty: true
+  };
+
+  saveLocalState();
   renderTodos();
+  scheduleSync();
+}
 
-  if (!hasRemoteApi()) {
-    saveLocalTodos();
+function deleteTodo(id) {
+  const index = findTodoIndex(id);
+  if (index === -1) {
     return;
   }
 
-  if (removedTodo.pending) {
+  const deletedAt = new Date().toISOString();
+  todos = todos.filter((todo) => todo.id !== id);
+  tombstones[id] = deletedAt;
+
+  saveLocalState();
+  renderTodos();
+  scheduleSync();
+}
+
+async function syncTodo(sentTodo) {
+  if (tombstones[sentTodo.id]) {
     return;
   }
 
-  beginPending();
-  let saved = false;
+  const index = findTodoIndex(sentTodo.id);
+  if (index === -1) {
+    return;
+  }
+
+  const snapshot = { ...todos[index] };
+
   try {
-    const payload = await jsonp("delete", { id });
-    replaceTodos(payload.todos || []);
-    saved = true;
-  } catch {
-    todos.splice(Math.min(index, todos.length), 0, {
-      ...removedTodo,
-      pending: false
+    if (isLocalId(snapshot.id)) {
+      const payload = await jsonp("add", snapshot);
+      handleAddResponse(snapshot, payload);
+      return;
+    }
+
+    await jsonp("toggle", {
+      id: snapshot.id,
+      done: String(snapshot.done),
+      updatedAt: snapshot.updatedAt
     });
-    sortTodos();
+
+    markCleanIfUnchanged(snapshot.id, snapshot.updatedAt);
+  } catch {
+    scheduleSync(RETRY_DELAY_MS);
+  }
+}
+
+function handleAddResponse(sentTodo, payload) {
+  const remoteTodo = findRemoteAddedTodo(sentTodo, payload);
+  const currentIndex = findTodoIndex(sentTodo.id);
+
+  if (remoteTodo && remoteTodo.id !== sentTodo.id) {
+    updateTodoId(sentTodo.id, remoteTodo);
+  }
+
+  const currentId = remoteTodo?.id || sentTodo.id;
+  const nextIndex = findTodoIndex(currentId);
+
+  if (nextIndex === -1) {
+    if (remoteTodo && tombstones[sentTodo.id]) {
+      tombstones[remoteTodo.id] = tombstones[sentTodo.id];
+      delete tombstones[sentTodo.id];
+    }
+    return;
+  }
+
+  const currentTodo = todos[nextIndex];
+  const remoteDone = remoteTodo ? remoteTodo.done : sentTodo.done;
+
+  if (currentIndex !== -1 && currentTodo.updatedAt === sentTodo.updatedAt && currentTodo.done === remoteDone) {
+    todos[nextIndex] = {
+      ...currentTodo,
+      dirty: false
+    };
+  } else {
+    todos[nextIndex] = {
+      ...currentTodo,
+      dirty: true
+    };
+  }
+
+  saveLocalState();
+  renderTodos();
+}
+
+function findRemoteAddedTodo(sentTodo, payload) {
+  if (payload.todo) {
+    return normalizeTodo(payload.todo);
+  }
+
+  const localIds = new Set(todos.map((todo) => todo.id));
+  const remoteTodos = (payload.todos || [])
+    .map(normalizeTodo)
+    .filter(isRealTodo)
+    .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+
+  return remoteTodos.find((todo) => todo.id === sentTodo.id)
+    || remoteTodos.find((todo) => todo.text === sentTodo.text && !localIds.has(todo.id))
+    || null;
+}
+
+function markCleanIfUnchanged(id, sentUpdatedAt) {
+  const index = findTodoIndex(id);
+  if (index === -1) {
+    return;
+  }
+
+  if (todos[index].updatedAt === sentUpdatedAt) {
+    todos[index] = {
+      ...todos[index],
+      dirty: false
+    };
+    saveLocalState();
     renderTodos();
-    setStatus("Error");
-  } finally {
-    endPending(saved);
+  }
+}
+
+async function syncDelete(id, deletedAt) {
+  if (isLocalId(id)) {
+    delete tombstones[id];
+    saveLocalState();
+    return;
+  }
+
+  try {
+    await jsonp("delete", { id, deletedAt });
+    if (tombstones[id] === deletedAt) {
+      delete tombstones[id];
+      saveLocalState();
+    }
+  } catch {
+    scheduleSync(RETRY_DELAY_MS);
   }
 }
 
@@ -340,10 +482,10 @@ function renderTodos() {
   }
 
   els.todoList.innerHTML = todos.map((todo) => `
-    <li class="todo-item ${todo.done ? "is-done" : ""} ${todo.pending ? "is-pending" : ""}" data-id="${escapeHtml(todo.id)}">
-      <input class="todo-check" type="checkbox" ${todo.done ? "checked" : ""} ${todo.pending ? "disabled" : ""} aria-label="Complete todo" />
+    <li class="todo-item ${todo.done ? "is-done" : ""}" data-id="${escapeHtml(todo.id)}">
+      <input class="todo-check" type="checkbox" ${todo.done ? "checked" : ""} aria-label="Complete todo" />
       <span class="todo-text">${escapeHtml(todo.text)}</span>
-      <button class="todo-delete" type="button" ${todo.pending ? "disabled" : ""} aria-label="Delete todo">x</button>
+      <button class="todo-delete" type="button" aria-label="Delete todo">x</button>
     </li>
   `).join("");
 }
@@ -389,6 +531,10 @@ els.todoList.addEventListener("click", (event) => {
 });
 
 renderClocks();
+loadLocalState();
+setStableStatus();
+renderTodos();
 refreshTodos();
+scheduleSync(1200);
 window.setInterval(renderClocks, 1000);
-window.setInterval(() => refreshTodos({ silent: true }), 30000);
+window.setInterval(refreshTodos, 30000);

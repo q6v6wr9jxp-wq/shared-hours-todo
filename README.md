@@ -23,3 +23,5 @@ https://script.google.com/macros/s/AKfycbwzASgjqK7xkMaTiBAFrIEOkU-j9rmhSEP6QqTk-
 If the site shows `Offline`, open `Deploy` -> `Manage deployments`, edit the web app deployment, and make sure `Who has access` is set to `Anyone`.
 
 The Apps Script creates and uses a `Todos` sheet tab automatically.
+
+After changing `apps-script-todo-api.gs`, redeploy the web app from `Deploy` -> `Manage deployments` -> edit -> `New version`.

@@ -20,6 +20,7 @@ function handleRequest(e) {
 
     const action = (params.action || "list").toLowerCase();
     const lock = LockService.getScriptLock();
+    let todo = null;
 
     if (action !== "list") {
       lock.waitLock(8000);
@@ -27,17 +28,18 @@ function handleRequest(e) {
 
     try {
       if (action === "add") {
-        addTodo(params.text);
+        todo = upsertTodo(params);
       } else if (action === "toggle") {
-        toggleTodo(params.id, params.done === "true");
+        todo = toggleTodo(params);
       } else if (action === "delete") {
-        deleteTodo(params.id);
+        deleteTodo(params);
       } else if (action !== "list") {
         throw new Error("unknown action");
       }
 
       return respond(e, {
         ok: true,
+        todo: todo,
         todos: listTodos()
       });
     } finally {
@@ -121,54 +123,133 @@ function listTodos() {
     .filter(function (row) {
       return row[0] && row[1] && !(row[0] === "id" && row[1] === "text");
     })
-    .map(function (row) {
-      return {
-        id: String(row[0]),
-        text: String(row[1]),
-        done: row[2] === true || row[2] === "TRUE" || row[2] === "true",
-        createdAt: row[3],
-        updatedAt: row[4]
-      };
-    })
+    .map(rowToTodo)
     .sort(function (a, b) {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return dateValue(b.createdAt) - dateValue(a.createdAt);
     });
 }
 
-function addTodo(text) {
-  const value = String(text || "").trim();
-  if (!value) {
+function upsertTodo(params) {
+  const text = String(params.text || "").trim();
+  if (!text) {
     throw new Error("empty todo");
   }
 
   const now = new Date().toISOString();
-  getSheet().appendRow([Utilities.getUuid(), value, false, now, now]);
-}
-
-function toggleTodo(id, done) {
-  const location = findTodoRow(id);
-  location.sheet.getRange(location.row, 3).setValue(done);
-  location.sheet.getRange(location.row, 5).setValue(new Date().toISOString());
-}
-
-function deleteTodo(id) {
-  const location = findTodoRow(id);
-  location.sheet.deleteRow(location.row);
-}
-
-function findTodoRow(id) {
+  const id = String(params.id || Utilities.getUuid());
+  const createdAt = String(params.createdAt || now);
+  const updatedAt = String(params.updatedAt || now);
+  const done = parseBoolean(params.done);
   const sheet = getSheet();
-  const values = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), 1).getValues();
+  const location = findTodoRow(id, sheet);
+
+  if (!location) {
+    sheet.appendRow([id, text, done, createdAt, updatedAt]);
+    return {
+      id: id,
+      text: text,
+      done: done,
+      createdAt: createdAt,
+      updatedAt: updatedAt
+    };
+  }
+
+  const existing = rowToTodo(sheet.getRange(location.row, 1, 1, HEADERS.length).getValues()[0]);
+  if (dateValue(updatedAt) < dateValue(existing.updatedAt)) {
+    return existing;
+  }
+
+  sheet.getRange(location.row, 1, 1, HEADERS.length).setValues([[id, text, done, existing.createdAt || createdAt, updatedAt]]);
+  return {
+    id: id,
+    text: text,
+    done: done,
+    createdAt: existing.createdAt || createdAt,
+    updatedAt: updatedAt
+  };
+}
+
+function toggleTodo(params) {
+  const id = String(params.id || "");
+  const sheet = getSheet();
+  const location = findTodoRow(id, sheet);
+
+  if (!location) {
+    return null;
+  }
+
+  const existing = rowToTodo(sheet.getRange(location.row, 1, 1, HEADERS.length).getValues()[0]);
+  const updatedAt = String(params.updatedAt || new Date().toISOString());
+
+  if (dateValue(updatedAt) < dateValue(existing.updatedAt)) {
+    return existing;
+  }
+
+  const done = parseBoolean(params.done);
+  sheet.getRange(location.row, 3).setValue(done);
+  sheet.getRange(location.row, 5).setValue(updatedAt);
+
+  return {
+    id: existing.id,
+    text: existing.text,
+    done: done,
+    createdAt: existing.createdAt,
+    updatedAt: updatedAt
+  };
+}
+
+function deleteTodo(params) {
+  const id = String(params.id || "");
+  const sheet = getSheet();
+  const location = findTodoRow(id, sheet);
+
+  if (!location) {
+    return;
+  }
+
+  const deletedAt = params.deletedAt;
+  if (deletedAt) {
+    const existing = rowToTodo(sheet.getRange(location.row, 1, 1, HEADERS.length).getValues()[0]);
+    if (dateValue(deletedAt) < dateValue(existing.updatedAt)) {
+      return;
+    }
+  }
+
+  sheet.deleteRow(location.row);
+}
+
+function findTodoRow(id, sheet) {
+  const targetSheet = sheet || getSheet();
+  const values = targetSheet.getRange(1, 1, Math.max(targetSheet.getLastRow(), 1), 1).getValues();
   const target = String(id || "");
 
   for (let index = 1; index < values.length; index += 1) {
     if (String(values[index][0]) === target) {
       return {
-        sheet: sheet,
+        sheet: targetSheet,
         row: index + 1
       };
     }
   }
 
-  throw new Error("todo not found");
+  return null;
+}
+
+function rowToTodo(row) {
+  return {
+    id: String(row[0]),
+    text: String(row[1]),
+    done: row[2] === true || row[2] === "TRUE" || row[2] === "true",
+    createdAt: String(row[3] || ""),
+    updatedAt: String(row[4] || row[3] || "")
+  };
+}
+
+function parseBoolean(value) {
+  return value === true || value === "true" || value === "TRUE";
+}
+
+function dateValue(value) {
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
 }
